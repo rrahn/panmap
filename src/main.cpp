@@ -108,9 +108,9 @@ void run_program(std::filesystem::path const & reference_path,
  auto jst_data = loadjst(reference_path);
 
 map_reads(query_path,
-          sam_path, 
+          sam_path,
           jst_data,
-          errors); 
+          errors);
 }
 
 // Funktion, die den Argument-Parser konfiguriert
