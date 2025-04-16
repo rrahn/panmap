@@ -114,35 +114,32 @@ map_reads(query_path,
 }
 
 // Funktion, die den Argument-Parser konfiguriert
-void initialise_argument_parser(seqan3::argument_parser & parser, configuration & args)
+void initialise_argument_parser(sharg::parser & parser, configuration & args)
 {
     parser.info.author = "Julia Bodnar"; // setzt den Autor des Programms
-    parser.info.short_description = "JST-based read mapper"; // setzt Beschreibung des Programms 
-    parser.info.version = "1.0.0"; // setzt Version des Programms 
+    parser.info.short_description = "JST-based read mapper"; // setzt Beschreibung des Programms
+    parser.info.version = "1.0.0"; // setzt Version des Programms
 
     parser.add_option(args.reference_path, // fügt eine Option für den Pfad zur Referenzdatei hinzu
-                      'r',
-                      "reference",
-                      "referenzgenome (JST-format)",
-                      sharg::config{.required = true, .validator = sharg::input_file_validator{{"jst"}}});
-                    
-    parser.add_option(args.query_path, 
-                      'q',
-                      "query",
-                      "Input reads",
-                      sharg::config{.required = true, .validator = sharg::input_file_validator{{"fq","fastq"}}});
+                      sharg::config{.short_id = 'r', .long_id="reference", .description = "referenzgenome (JST-format)", .required = true, .validator = sharg::input_file_validator{{"jst"}}});
+
+    parser.add_option(args.query_path,
+                      sharg::config{.short_id = 'q',
+                                    .long_id = "query",
+                                    .description = "Input reads",
+                                    .required = true, .validator = sharg::input_file_validator{{"fq","fastq"}}});
 
     parser.add_option(args.sam_path, // fügt eine Option für den Pfad zur SAM Ausgabedatei hinzu
-                      'o',
-                      "output",
-                      "The output SAM file.",
-                      sharg::config{.validator = sharg::output_file_validator{{"sam"}}});
+                      sharg::config{.short_id = 'o',
+                                    .long_id = "output",
+                                    .description = "The output SAM file.",
+                                    .validator = sharg::output_file_validator{{"sam"}}});
 
     parser.add_option(args.errors, // fügt eine Option für die maximale Anzahl von Feldern hinzu
-                      'e',
-                      "error",
-                      "Maximum allowed errors.",
-                      sharg::config{.validator = sharg::arithmetic_range_validator{0, 4}});                 
+                      sharg::config{.short_id = 'e',
+                                    .long_id = "error",
+                                    .description = "Maximum allowed errors.",
+                                    .validator = sharg::arithmetic_range_validator{0, 4}});
 }
 
 int main(int argc, char const** argv)
