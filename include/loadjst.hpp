@@ -15,16 +15,14 @@ struct JST_Data {
     std::vector<seqan3::dna5_vector> sequences;
 };
 
-JST_Data loadjst(std::filesystem::path const & path)
+rcs_store_t loadjst(std::filesystem::path const & path)
 {
-    JST_Data data;
-    seqan3::sequence_file_input fin{path};
-
-    for (auto&&record : fin){
-        data.ids.push_back(std::move(record.id()));
-        data.sequences.push_back(record.sequence());
+    rcs_store_t rcsstore{};
+    std::ifstream rcsstream{path, std::ios::binary};
+    {
+        cereal::BinaryInputArchive rcsarchive{rcsstream};
+        rcsstore.load(rcsarchive);
     }
-
-    return data;
+    return rcsstore;
 }
 
