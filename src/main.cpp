@@ -13,50 +13,61 @@
 #include <seqan3/io/sam_file/output.hpp>
 #include <seqan3/io/sequence_file/input.hpp>
 
+#include <libspm/matcher/horspool_matcher.hpp>
+#include <libjst/sequence_tree/volatile_tree.hpp>
+#include <libjst/sequence_tree/labelled_tree.hpp>
+#include <libjst/sequence_tree/coloured_tree.hpp>
+#include <libjst/sequence_tree/trim_tree.hpp>
+#include <libjst/sequence_tree/prune_tree.hpp>
+#include <libjst/sequence_tree/merge_tree.hpp>
+#include <libjst/sequence_tree/seekable_tree.hpp>
+#include <libjst/traversal/tree_traverser_base.hpp>
+#include <libjst/sequence_tree/left_extend_tree.hpp>
+
 #include <configuration.hpp>
 #include <loadjst.hpp>
 #include <seqan3/search/search.hpp>
 
-
-struct jst_adapter 
+std::vector<libjst::seek_position> jst_search(const rcs_store_t& jst_data, const reference_t& read)
 {
-    using iterator = typename std::vector<seqan3::dna5_vector>::const_iterator;
-    
-    const JST_Data& data;
-    
-    size_t size() const { return data.sequences.size(); }
-    auto operator[](size_t i) const { return std::views::all(data.sequences[i]); }
 
-    iterator begin() const { return data.sequences.begin(); }
-    iterator end() const { return data.sequences.end(); }
-};
+    spm::horspool_matcher matcher{read};
 
-std::vector<size_t> jst_search(const auto& jst_data, const seqan3::dna5_vector& read)
-{
-    auto config = seqan3::search_cfg::max_error_total{seqan3::search_cfg::error_count{0}} //keine fehler erlaubt
-                | seqan3::search_cfg::hit_all_best{}; // beste treffer zurückgeben
-    
-    auto results = seqan3::search(read, jst_adapter{jst_data}, config);
-    
-    std::vector<size_t> hits;
-    for (auto&& result : results)
-        hits.push_back(result.reference_begin_position());
-    
+    auto search_tree = libjst::make_volatile(jst_data) | libjst::labelled()
+                                | libjst::coloured()
+                                | libjst::trim(spm::window_size(matcher) - 1)
+                                | libjst::prune()
+                                | libjst::left_extend(spm::window_size(matcher) - 1)
+                                | libjst::merge() // make big nodes
+                                | libjst::seek();
+
+    std::vector<libjst::seek_position> hits;
+    libjst::tree_traverser_base oblivious_path{search_tree};
+    for (auto it = oblivious_path.begin(); it != oblivious_path.end(); ++it) {
+        auto && cargo = *it;
+        matcher(cargo.sequence(), [&] ([[maybe_unused]] auto && label_finder) {
+            hits.push_back(cargo.position());
+            std::cout<<"Found hit. Yayy." << cargo.position() <<"\n";
+            // callback(query, match_position{.tree_position{cargo.position()},
+                                        //    .label_offset{std::ranges::ssize(cargo.sequence()) - seqan2::endPosition(label_finder)}});
+        });
+    }
+
     return hits;
 }
 
 void map_reads(std::filesystem::path const & query_path,
     std::filesystem::path const & sam_path,
-    const JST_Data & jst_data,
+    const rcs_store_t & jst_data,
     uint8_t const errors)
 {
-    seqan3::sequence_file_input query_file_in{query_path};
+    sequence_file_t query_file_in{query_path};
     seqan3::sam_file_output sam_out{sam_path, seqan3::fields<seqan3::field::seq,
                                               seqan3::field::id,
-                                              seqan3::field::ref_id, 
-                                              seqan3::field::ref_offset, 
-                                              seqan3::field::cigar, 
-                                              seqan3::field::qual, 
+                                              seqan3::field::ref_id,
+                                              seqan3::field::ref_offset,
+                                              seqan3::field::cigar,
+                                              seqan3::field::qual,
                                               seqan3::field::mapq>{}};
 
 
@@ -66,35 +77,36 @@ void map_reads(std::filesystem::path const & query_path,
         seqan3::align_cfg::method_global{seqan3::align_cfg::free_end_gaps_sequence1_leading{true},
                                          seqan3::align_cfg::free_end_gaps_sequence2_leading{false},
                                          seqan3::align_cfg::free_end_gaps_sequence1_trailing{true},
-                                         seqan3::align_cfg::free_end_gaps_sequence2_trailing{false}} | 
-        seqan3::align_cfg::edit_scheme | 
+                                         seqan3::align_cfg::free_end_gaps_sequence2_trailing{false}} |
+        seqan3::align_cfg::edit_scheme |
         seqan3::align_cfg::output_alignment{} |
-        seqan3::align_cfg::output_begin_position{} | 
+        seqan3::align_cfg::output_begin_position{} |
         seqan3::align_cfg::output_score{};
- 
+
     for (auto && record : query_file_in) // beginnt Schleife, die jeden Eintrag in der Query-Datei durchläuft
     {
         auto & query = record.sequence(); // referenziert die Sequenz des aktuellen Eintrags
         auto hits = jst_search(jst_data, query);
-       
-        for (auto hit_pos : hits)
-            {
-                std::span text_view{std::data(jst_data.sequences[hit_pos]), query.size() +1};
 
-                for (auto&& alignment : seqan3::align_pairwise(std::tie(text_view,query), align_config))
-            {
-            auto cigar = seqan3::cigar_from_alignment(alignment.alignment()); // wandelt das Alignment in einen CIGAR-String um
-            size_t ref_offset = alignment.sequence1_begin_position() + 2; // berechnet Offset in der Referenzsequenz basierend auf der Ausrichtung
-            size_t map_qual = 60u + alignment.score(); // berechnet die Mapping-Qualität basierend auf dem Ausrichtungsscore
-                //fängt einen neuen Eintrag zur SAM-Datei hinzu
-                sam_out.emplace_back(query,
-                                     record.id(),
-                                     jst_data.ids[hit_pos], 
-                                     ref_offset,
-                                     cigar,
-                                     record.base_qualities(),
-                                     map_qual);
-            }
+        for (auto hit_pos : hits)
+        {
+            // std::span text_view{std::data(jst_data.sequences[hit_pos]), query.size() +1};
+            std::cout << "seek position: " << hit_pos << "\n";
+
+            // for (auto&& alignment : seqan3::align_pairwise(std::tie(text_view,query), align_config))
+            // {
+            // auto cigar = seqan3::cigar_from_alignment(alignment.alignment()); // wandelt das Alignment in einen CIGAR-String um
+            // size_t ref_offset = alignment.sequence1_begin_position() + 2; // berechnet Offset in der Referenzsequenz basierend auf der Ausrichtung
+            // size_t map_qual = 60u + alignment.score(); // berechnet die Mapping-Qualität basierend auf dem Ausrichtungsscore
+            //     //fängt einen neuen Eintrag zur SAM-Datei hinzu
+            //     sam_out.emplace_back(query,
+            //                          record.id(),
+            //                          jst_data.ids[hit_pos],
+            //                          ref_offset,
+            //                          cigar,
+            //                          record.base_qualities(),
+            //                          map_qual);
+            // }
         }
     }
 }
