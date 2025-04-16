@@ -149,20 +149,20 @@ int main(int argc, char const** argv)
 {
     sharg::parser parser{"PanMap", argc, argv};
     configuration args{};
-    
+
     initialise_argument_parser(parser, args);
-    
+
     try {
         parser.parse();
     } catch (const sharg::parser_error& e) {
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
-    
-    run_program(args.reference_path, 
-               args.query_path, 
-               args.sam_path, 
+
+    run_program(args.reference_path,
+               args.query_path,
+               args.sam_path,
                args.errors);
-    
+
     return 0;
 }
